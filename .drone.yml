@@ -1,0 +1,82 @@
+global-variables:
+  - &default-docker-settings
+    image: plugins/docker
+    volumes:
+      - name: docker_sock
+        path: /var/run/docker.sock
+    environment:
+      SERVICE_PATH: ${DRONE_REPO_NAME}
+      GITHUB_TOKEN:
+        from_secret: github_token
+    settings:
+      repo: lcr.plutonyx.com/phimaker/${DRONE_REPO_NAME}
+      # cache_from: lcr.plutonyx.com/phimaker/${DRONE_REPO_NAME}
+      registry: lcr.plutonyx.com
+      # dockerfile: ./docker/Dockerfile.no-build
+      dockerfile: ./docker/Dockerfile
+      storage_path: /drone/src
+      # auto_tag: true
+      username:
+        from_secret: docker_ptx_username
+      password:
+        from_secret: docker_ptx_password
+      build_args_from_env:
+        - SERVICE_PATH
+        - GITHUB_TOKEN
+      create_repository: true
+      use_cache: false
+      tag:
+        - ${DRONE_BUILD_NUMBER}
+        - "sha-${DRONE_COMMIT_SHA:0:7}"
+        - latest
+    when: &common-event
+      event:
+        exclude:
+          - pull_request
+          - tag
+
+  - &default-build
+    image: golang:1.22.3
+    environment:
+      GOOS: linux
+      GOARCH: amd64
+      CGO_ENABLED: 0
+      GOPRIVATE: github.com/phimaker
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - git config --global url."https://${GITHUB_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+      - go mod download
+      - make build
+    volumes:
+      - name: cache
+        path: /go/pkg/mod
+
+kind: pipeline
+type: docker
+name: linux_amd64
+
+volumes:
+  - name: cache
+    host:
+      path: /tmp/cache/${DRONE_REPO_NAME}
+  - name: docker_sock
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  # - name: build-linux-amd64
+  #   <<: *default-build
+
+  # - name: check
+  #   image: alpine
+  #   commands:
+  #     - ls -al
+  #     - echo ${DRONE_REPO_NAME}
+  #     - echo ${GOOS} ${GOARCH}
+  #     - ls ./bin/
+  #     - du -sh ./bin/*
+  #     - echo "check"
+
+  - name: package
+    <<: *default-docker-settings
